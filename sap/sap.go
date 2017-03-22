@@ -94,31 +94,41 @@ var DefaultParamsv4 = Params{
 }
 
 // ListenSAP returns a channel feeding received sdp Announces
-func (p Params) ListenSAP() (<-chan *Packet, error) {
+func (p *Params) ListenSAP() (<-chan *Packet, chan<- bool, error) {
 	sapAddr := net.UDPAddr{
 		IP:   p.Addr,
 		Port: p.Port,
 	}
 	conn, err := net.ListenMulticastUDP("udp", nil, &sapAddr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ch := make(chan *Packet, p.ChanLen)
-	go streamDecode(conn, ch)
-	return ch, nil
+	controlChan := make(chan bool)
+	go streamDecode(conn, ch, controlChan)
+	return ch, controlChan, nil
 }
 
-func streamDecode(conn net.PacketConn, announces chan<- *Packet) {
+func streamDecode(conn net.PacketConn, announces chan<- *Packet, control <-chan bool) {
 	b := make([]byte, initialMTU)
+	defer conn.Close()
+	defer close(announces)
 	for {
 		var p Packet
 		var desc *sdp.Description
+		select {
+		case _, ok := <-control:
+			if !ok {
+				return
+			}
+		default:
+		}
 
 		p.Len, _, p.Error = conn.ReadFrom(b)
 		if p.Error != nil {
 			goto next
 		}
-		p.Header, p.Error = Parse(b, p.Len)
+		p.Header, p.Error = Parse(b[:p.Len])
 		if p.Error != nil {
 			goto next
 		}
@@ -130,9 +140,6 @@ func streamDecode(conn net.PacketConn, announces chan<- *Packet) {
 
 		desc, p.Error = sdp.Parse(string(p.Header.Payload))
 		p.Description = *desc
-		if p.Error != nil {
-			continue
-		}
 	next:
 		select {
 		case announces <- &p:
@@ -143,7 +150,11 @@ func streamDecode(conn net.PacketConn, announces chan<- *Packet) {
 }
 
 // Parse parses the given buffer for an SAP header
-func Parse(b []byte, totalLength int) (Header, error) {
+func Parse(b []byte) (Header, error) {
+	if len(b) < 4 {
+		err := errors.New("Invalid header length")
+		return Header{}, err
+	}
 	header := Header{
 		Version:     (b[0] & 0xe0) >> 5,
 		AddressType: (b[0] & 0x10) != 0,
@@ -152,7 +163,7 @@ func Parse(b []byte, totalLength int) (Header, error) {
 		Compressed:  (b[0] & 0x20) != 0,
 		Encrypted:   (b[0] & 0x10) != 0,
 		AuthLen:     b[1],
-		IDHash:      ((uint16)(b[2]))<<8 + (uint16)(b[3]),
+		IDHash:      uint16(b[3]) | uint16(b[2])<<8,
 		Len:         4,
 	}
 	// Sanity checks
@@ -160,42 +171,40 @@ func Parse(b []byte, totalLength int) (Header, error) {
 		err := errors.New("Invalid SAP version")
 		return header, err
 	}
-	if totalLength < header.Len {
-		err := errors.New("Invalid Length")
-		return header, err
-	}
 	if header.AddressType == SAPAddrTypeV4 {
+		if len(b) < header.Len+4 {
+			return header, errors.New("Invalid header length")
+		}
 		header.OrigSrc = b[4:8]
 		header.Len += 4
 	} else {
+		if len(b) < header.Len+6 {
+			return header, errors.New("Invalid header length")
+		}
 		header.OrigSrc = b[4:20]
 		header.Len += 16
 	}
-	if totalLength < header.Len {
-		err := errors.New("Invalid Length")
-		return header, err
-	}
 
 	if header.AuthLen > 0 {
+		if len(b) < header.Len+int(header.AuthLen)*4 {
+			return header, errors.New("Invalid header length")
+		}
 		header.AuthData = b[header.Len : header.Len+(int)(header.AuthLen)*4]
 		header.Len += (int)(header.AuthLen) * 4
-	}
-	if totalLength < header.Len {
-		err := errors.New("Invalid Length")
-		return header, err
 	}
 
 	if header.Version != 0 {
 		var pltypelen int
 		// Special case for no payload field, implicit "application/sdp"
-		if bytes.Equal(b[header.Len:header.Len+3], []byte{'v', '=', '0'}) {
+		if len(b) >= header.Len+3 && bytes.Equal(b[header.Len:header.Len+3], []byte{'v', '=', '0'}) {
 			header.PayloadType = SDPPayloadType
 			pltypelen = 0
 		} else {
 			pltypelen = bytes.Index(b[header.Len:], []byte{0})
 			if pltypelen < 0 {
-				err := errors.New("Malformed payload type")
-				return header, err
+				return header, errors.New("Malformed payload type")
+			} else if header.Len+pltypelen+1 > len(b) {
+				return header, errors.New("Invalid header length")
 			}
 			header.PayloadType = string(b[header.Len : header.Len+pltypelen])
 		}
@@ -203,11 +212,7 @@ func Parse(b []byte, totalLength int) (Header, error) {
 	} else {
 		header.PayloadType = SDPPayloadType
 	}
-	if totalLength < header.Len {
-		err := errors.New("Invalid Length")
-		return header, err
-	}
 
-	header.Payload = b[header.Len:totalLength]
+	header.Payload = b[header.Len:]
 	return header, nil
 }

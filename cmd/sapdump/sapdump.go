@@ -48,7 +48,7 @@ func main() {
 	allchan := make(chan *sap.Packet)
 	if *group == "" {
 		if !*v4only {
-			ann6, err := sap.DefaultParamsv6.ListenSAP()
+			ann6, _, err := sap.DefaultParamsv6.ListenSAP()
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -58,8 +58,9 @@ func main() {
 				}
 			}()
 
-		} else if !*v6only {
-			ann4, err := sap.DefaultParamsv4.ListenSAP()
+		}
+		if !*v6only {
+			ann4, _, err := sap.DefaultParamsv4.ListenSAP()
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -75,7 +76,7 @@ func main() {
 		for _, g := range groups {
 			param := sap.DefaultParams
 			param.Addr = net.ParseIP(g)
-			ann, err := param.ListenSAP()
+			ann, _, err := param.ListenSAP()
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -88,6 +89,8 @@ func main() {
 	}
 	// now loop-dump everything
 	for packet := range allchan {
-		tmpl.Execute(os.Stdout, packet)
+		if packet.Error == nil {
+			tmpl.Execute(os.Stdout, packet)
+		}
 	}
 }
