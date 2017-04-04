@@ -19,10 +19,14 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/Natolumin/multidrop/sap"
+
+	"github.com/LINBIT/termui"
 )
 
 const defFormat = `{{.Description}}
@@ -34,6 +38,7 @@ func main() {
 	v6only := flag.Bool("6", false, "Only listen on ipv6 groups (overriden by -group)")
 	v4only := flag.Bool("4", false, "Only listen on ipv4 groups (overriden by -group)")
 	format := flag.String("format", defFormat, "Format string following text/template for dumping SAP announcements")
+	curses := flag.Bool("curses", false, "Display continuous stats instead of dumping incoming announcements")
 
 	flag.Parse()
 
@@ -88,9 +93,46 @@ func main() {
 		}
 	}
 	// now loop-dump everything
-	for packet := range allchan {
-		if packet.Error == nil {
-			tmpl.Execute(os.Stdout, packet)
+	if !*curses {
+		for packet := range allchan {
+			if packet.Error == nil {
+				if err := tmpl.Execute(os.Stdout, packet); err != nil {
+					log.Fatal(err)
+				}
+			}
 		}
+	} else {
+		err := termui.Init()
+		if err != nil {
+			log.Panic(err)
+		}
+		defer termui.Close()
+
+		streams := sap.CountStreams(allchan)
+		defer streams.Close()
+
+		tbl := termui.NewTable()
+		tbl.Width = termui.TermWidth()
+		tbl.Height = termui.TermHeight()
+		termui.Handle("/timer/1s", func(termui.Event) {
+			channels := streams.Read()
+			displayed := [][]string{[]string{"Session name", "Last Advertisement", "Nb. Adv.", "Adv Interval"}}
+			for _, channel := range channels {
+				if channel.Last.Add(channel.Interval*10).After(time.Now()) ||
+					(channel.Count == 1 && channel.Last.Add(time.Minute*5).After(time.Now())) {
+					displayed = append(displayed, []string{channel.Session, channel.Last.String(), strconv.Itoa(channel.Count), channel.Interval.String()})
+				}
+			}
+			tbl.SetRows(displayed)
+			termui.Render(tbl)
+		})
+		termui.Handle("/sys/kbd/q", func(termui.Event) {
+			termui.StopLoop()
+		})
+		termui.Handle("/sys/wnd/resize", func(termui.Event) {
+			tbl.Width = termui.TermWidth()
+			tbl.Height = termui.TermHeight()
+		})
+		termui.Loop()
 	}
 }

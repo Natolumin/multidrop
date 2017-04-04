@@ -19,6 +19,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"time"
 
 	"github.com/pixelbender/go-sdp/sdp"
 )
@@ -215,4 +216,92 @@ func Parse(b []byte) (Header, error) {
 
 	header.Payload = b[header.Len:]
 	return header, nil
+}
+// CountStreams starts a routine that keeps count of available streams
+func CountStreams(sapch <-chan *Packet) StreamChan {
+	sch := newStreamChan()
+	go countStreams(sapch, sch)
+	return sch
+}
+
+// StreamChan is an opaque structure to control the countStreams function
+type StreamChan struct {
+	datachan    chan []AdvLifetime
+	controlchan chan bool
+}
+
+func newStreamChan() StreamChan {
+	return StreamChan{
+		datachan:    make(chan []AdvLifetime),
+		controlchan: make(chan bool),
+	}
+}
+
+// Close implements the Closer interface
+func (c StreamChan) Close() {
+	c.controlchan <- false
+	close(c.controlchan)
+}
+func (c StreamChan) Read() []AdvLifetime {
+	c.controlchan <- true
+	return <-c.datachan
+}
+
+// AdvLifetime is a sdp.Description annotated with timing information
+type AdvLifetime struct {
+	sdp.Description
+	Last     time.Time
+	Interval time.Duration
+	Count    int
+}
+
+func countStreams(dch <-chan *Packet, cch StreamChan) {
+	var channels []AdvLifetime
+	for {
+		select {
+		case msg := <-cch.controlchan:
+			if !msg {
+				close(cch.datachan)
+				return
+			}
+			var snapshot []AdvLifetime
+			for _, c := range channels {
+				//sdp.Description doesn't provide a deep-copy. Parse(String()) is good enough
+				copyc, err := sdp.Parse(c.Description.String())
+				if err != nil {
+					log.Printf("sdp could not parse own string: %v", c.Description.String())
+					continue
+				}
+				snapshot = append(snapshot, AdvLifetime{
+					Description: *copyc,
+					Last:        c.Last,
+					Interval:    c.Interval,
+					Count:       c.Count,
+				})
+			}
+			cch.datachan <- snapshot
+		case p := <-dch:
+			if p.Error != nil {
+				continue
+			}
+
+			found := false
+			for i, c := range channels {
+				if c.Session == p.Description.Session {
+					found = true
+					channels[i].Interval = time.Now().Sub(c.Last)
+					channels[i].Last = time.Now()
+					channels[i].Count++
+					break
+				}
+			}
+			if !found {
+				channels = append(channels, AdvLifetime{
+					Description: p.Description,
+					Last:        time.Now(),
+					Count:       1,
+				})
+			}
+		}
+	}
 }
