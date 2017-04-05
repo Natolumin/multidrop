@@ -139,6 +139,9 @@ func main() {
 		termui.Handle("/sys/kbd/q", func(termui.Event) {
 			termui.StopLoop()
 		})
+		termui.Handle("/sys/kbd/C-c", func(termui.Event) {
+			termui.StopLoop()
+		})
 		termui.Handle("/sys/wnd/resize", func(termui.Event) {
 			tbl.Width = termui.TermWidth()
 			tbl.Height = termui.TermHeight()
