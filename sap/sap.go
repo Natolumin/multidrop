@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package sap provides a parser for SAP packages
 package sap
 
 import (

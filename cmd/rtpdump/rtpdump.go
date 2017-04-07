@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//rtpdump is a tool to identify packet loss in multicast RTP diffusion
 package main
 
 import (
