@@ -136,7 +136,7 @@ func streamDecode(conn net.PacketConn, announces chan<- *Packet, control <-chan 
 		}
 
 		if p.Header.PayloadType != SDPPayloadType {
-			p.Error = errors.New("Packet payload is not SDP")
+			p.Error = errors.New("packet payload is not SDP")
 			goto next
 		}
 
@@ -146,7 +146,7 @@ func streamDecode(conn net.PacketConn, announces chan<- *Packet, control <-chan 
 		select {
 		case announces <- &p:
 		default:
-			log.Print("Full Buffer! Increase buffer size")
+			log.Print("full buffer")
 		}
 	}
 }
@@ -154,7 +154,7 @@ func streamDecode(conn net.PacketConn, announces chan<- *Packet, control <-chan 
 // Parse parses the given buffer for an SAP header
 func Parse(b []byte) (Header, error) {
 	if len(b) < 4 {
-		err := errors.New("Invalid header length")
+		err := errors.New("invalid header length")
 		return Header{}, err
 	}
 	header := Header{
@@ -170,18 +170,18 @@ func Parse(b []byte) (Header, error) {
 	}
 	// Sanity checks
 	if header.Version > 1 {
-		err := errors.New("Invalid SAP version")
+		err := errors.New("invalid SAP version")
 		return header, err
 	}
 	if header.AddressType == SAPAddrTypeV4 {
 		if len(b) < header.Len+4 {
-			return header, errors.New("Invalid header length")
+			return header, errors.New("invalid header length")
 		}
 		header.OrigSrc = b[4:8]
 		header.Len += 4
 	} else {
 		if len(b) < header.Len+6 {
-			return header, errors.New("Invalid header length")
+			return header, errors.New("invalid header length")
 		}
 		header.OrigSrc = b[4:20]
 		header.Len += 16
@@ -189,7 +189,7 @@ func Parse(b []byte) (Header, error) {
 
 	if header.AuthLen > 0 {
 		if len(b) < header.Len+int(header.AuthLen)*4 {
-			return header, errors.New("Invalid header length")
+			return header, errors.New("invalid header length")
 		}
 		header.AuthData = b[header.Len : header.Len+(int)(header.AuthLen)*4]
 		header.Len += (int)(header.AuthLen) * 4
@@ -204,9 +204,9 @@ func Parse(b []byte) (Header, error) {
 		} else {
 			pltypelen = bytes.Index(b[header.Len:], []byte{0})
 			if pltypelen < 0 {
-				return header, errors.New("Malformed payload type")
+				return header, errors.New("malformed payload type")
 			} else if header.Len+pltypelen+1 > len(b) {
-				return header, errors.New("Invalid header length")
+				return header, errors.New("invalid header length")
 			}
 			header.PayloadType = string(b[header.Len : header.Len+pltypelen])
 		}
