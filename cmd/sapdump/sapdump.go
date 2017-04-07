@@ -26,12 +26,15 @@ import (
 	"time"
 
 	"github.com/Natolumin/multidrop/sap"
+	"github.com/pixelbender/go-sdp/sdp"
 
 	"github.com/LINBIT/termui"
 )
 
 const defFormat = `{{.Description}}
 `
+
+const timeResolution = time.Second
 
 func main() {
 
@@ -121,16 +124,26 @@ func main() {
 		streams := sap.CountStreams(allchan)
 		defer streams.Close()
 
+		// TODO: sort channels by number/name
+
 		tbl := termui.NewTable()
+		tbl.Separator = false
+		tbl.Border = false
 		tbl.Width = termui.TermWidth()
 		tbl.Height = termui.TermHeight()
 		termui.Handle("/timer/1s", func(termui.Event) {
 			channels := streams.Read()
-			displayed := [][]string{[]string{"Session name", "Last Advertisement", "Nb. Adv.", "Adv Interval"}}
+			displayed := [][]string{[]string{"Session", "Last Adv.", "Nb.", "Interval", "Group Address"}}
 			for _, channel := range channels {
 				if channel.Last.Add(channel.Interval*10).After(time.Now()) ||
 					(channel.Count == 1 && channel.Last.Add(time.Minute*5).After(time.Now())) {
-					displayed = append(displayed, []string{channel.Session, channel.Last.String(), strconv.Itoa(channel.Count), channel.Interval.String()})
+					displayed = append(displayed, []string{
+						channel.Session,
+						channel.Last.Format("15:04:05.000"),
+						strconv.Itoa(channel.Count),
+						(channel.Interval / timeResolution * timeResolution).String(),
+						groupAddr(channel.Description),
+					})
 				}
 			}
 			tbl.SetRows(displayed)
@@ -148,4 +161,16 @@ func main() {
 		})
 		termui.Loop()
 	}
+}
+
+func groupAddr(d sdp.Description) string {
+	addr := d.Origin.Address
+	if net.ParseIP(addr).To4() == nil {
+		addr = "[" + addr + "]"
+	}
+	var ports []string
+	for _, m := range d.Media {
+		ports = append(ports, strconv.Itoa(m.Port))
+	}
+	return addr + ":" + strings.Join(ports, ",")
 }
