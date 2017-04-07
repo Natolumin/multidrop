@@ -217,6 +217,31 @@ func Parse(b []byte) (Header, error) {
 	header.Payload = b[header.Len:]
 	return header, nil
 }
+
+// FindChannels finds the given channels in the SAP announcements
+func (p *Params) FindChannels(channels []string) map[string]*net.UDPAddr {
+	ch, controlch, err := p.ListenSAP()
+	defer close(controlch)
+	if err != nil {
+		return nil
+	}
+	matches := make(map[string]*net.UDPAddr)
+	for announce := range ch {
+		for i := range channels {
+			if announce.Description.Session == channels[i] {
+				matches[announce.Description.Session] = &net.UDPAddr{
+					IP:   net.ParseIP(announce.Description.Origin.Address),
+					Port: announce.Description.Media[0].Port, //XXX: Eh
+				}
+			}
+		}
+		if len(matches) == len(channels) {
+			break
+		}
+	}
+	return matches
+}
+
 // CountStreams starts a routine that keeps count of available streams
 func CountStreams(sapch <-chan *Packet) StreamChan {
 	sch := newStreamChan()
