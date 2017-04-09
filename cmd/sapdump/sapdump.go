@@ -26,14 +26,14 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/Natolumin/multidrop/multicastutil"
 	"github.com/Natolumin/multidrop/sap"
 	"github.com/pixelbender/go-sdp/sdp"
 
 	"github.com/LINBIT/termui"
 )
 
-const defFormat = `{{.Description}}
-`
+const defFormat = "{{.Payload}}\n"
 
 const timeResolution = time.Second
 
@@ -60,56 +60,38 @@ func main() {
 		log.Fatal("Incompatible flags -4 and -6")
 	}
 
-	allchan := make(chan *sap.Packet)
+	// Socket setup
+	var gaddrs []net.IP
 	if *group == "" {
-		if !*v4only {
-			ann6, _, err := sap.DefaultParamsv6.ListenSAP()
-			if err != nil {
-				log.Fatal(err)
-			}
-			go func() {
-				for p := range ann6 {
-					allchan <- p
-				}
-			}()
-
+		if *v4only {
+			gaddrs = []net.IP{sap.GroupAddr4}
+		} else if *v6only {
+			gaddrs = []net.IP{sap.V6GroupByZone(2), sap.V6GroupByZone(5), sap.V6GroupByZone(8), sap.V6GroupByZone(0xe)}
+		} else {
+			gaddrs = []net.IP{sap.V6GroupByZone(2), sap.V6GroupByZone(5), sap.V6GroupByZone(8), sap.V6GroupByZone(0xe), sap.GroupAddr4}
 		}
-		if !*v6only {
-			ann4, _, err := sap.DefaultParamsv4.ListenSAP()
-			if err != nil {
-				log.Fatal(err)
-			}
-			go func() {
-				for p := range ann4 {
-					allchan <- p
-				}
-			}()
-		}
-
 	} else {
 		groups := strings.Split(*group, ",")
-		for _, g := range groups {
-			param := sap.DefaultParams
-			param.Addr = net.ParseIP(g)
-			ann, _, err := param.ListenSAP()
-			if err != nil {
-				log.Fatal(err)
-			}
-			go func() {
-				for p := range ann {
-					allchan <- p
-				}
-			}()
+		gaddrs = make([]net.IP, len(groups))
+		for i, g := range groups {
+			gaddrs[i] = net.ParseIP(g)
 		}
 	}
+	tc, err := multicastutil.ListenMulticastUDP(gaddrs, sap.SAPPort)
+	if err != nil {
+		log.Fatalf("Could not join all multicast groups: %v", err)
+	}
+	conn := (*sap.SDPConn)(tc)
+
 	// now loop-dump everything
 	if !curses {
 		tmpl, err := template.New("format").Parse(*format)
 		if err != nil {
 			log.Fatalf("Invalid template: %s", err)
 		}
-		for packet := range allchan {
-			if packet.Error == nil {
+		for {
+			packet, err := conn.Read()
+			if err == nil {
 				if err := tmpl.Execute(os.Stdout, packet); err != nil {
 					log.Fatal(err)
 				}
@@ -122,7 +104,7 @@ func main() {
 		}
 		defer termui.Close()
 
-		streams := sap.CountStreams(allchan)
+		streams := conn.CountStreams()
 		defer streams.Close()
 
 		// TODO: sort channels by number/name

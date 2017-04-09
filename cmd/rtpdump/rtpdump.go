@@ -21,6 +21,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/Natolumin/multidrop/multicastutil"
 	"github.com/Natolumin/multidrop/sap"
 
 	"github.com/opennota/rtp/rtp"
@@ -61,20 +62,26 @@ func main() {
 	}
 	for {
 		if *channel != "" {
-			groups := sap.DefaultParams.FindChannels([]string{*channel})
+			tc, err := multicastutil.ListenMulticastUDP(sap.DefaultSAPGroups, sap.SAPPort)
+			if err != nil {
+				log.Fatalf("Could not connect to all multicast groups: %v", err)
+			}
+			conn := (*sap.SDPConn)(tc)
+			groups := conn.FindChannels([]string{*channel})
 			gaddr = groups[*channel]
-			if debug {
-				log.Println("Found channel " + *channel)
+			if gaddr == nil {
+				log.Fatal("Could not find required group")
 			}
+			if debug {
+				log.Printf("Found channel %s on group %v ", *channel, gaddr)
+			}
+			tc.Close()
 		}
-		conn, err := net.ListenMulticastUDP("udp", nil, gaddr)
+		rtpconn, err := multicastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port)
 		if err != nil {
-			if debug {
-				log.Printf("Couldn't listen on %v", gaddr)
-			}
-			break
+			log.Fatalf("Could not listen on rtp address: %v", err)
 		}
-		parseRTP(conn)
+		parseRTP(rtpconn)
 	}
 }
 
