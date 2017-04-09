@@ -26,7 +26,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/Natolumin/multidrop/multicastutil"
+	"github.com/Natolumin/multidrop/mcastutil"
 	"github.com/Natolumin/multidrop/sap"
 	"github.com/pixelbender/go-sdp/sdp"
 
@@ -77,7 +77,7 @@ func main() {
 			gaddrs[i] = net.ParseIP(g)
 		}
 	}
-	tc, err := multicastutil.ListenMulticastUDP(gaddrs, sap.SAPPort)
+	tc, err := mcastutil.ListenMulticastUDP(gaddrs, sap.SAPPort)
 	if err != nil {
 		log.Fatalf("Could not join all multicast groups: %v", err)
 	}

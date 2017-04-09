@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//Package multicastutil implements some multicast-related helper functions
-package multicastutil
+//Package mcastutil implements some multicast-related helper functions
+package mcastutil
 
 import (
 	"net"

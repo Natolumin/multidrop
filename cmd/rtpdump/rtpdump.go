@@ -21,7 +21,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/Natolumin/multidrop/multicastutil"
+	"github.com/Natolumin/multidrop/mcastutil"
 	"github.com/Natolumin/multidrop/sap"
 
 	"github.com/opennota/rtp/rtp"
@@ -62,7 +62,7 @@ func main() {
 	}
 	for {
 		if *channel != "" {
-			tc, err := multicastutil.ListenMulticastUDP(sap.DefaultSAPGroups, sap.SAPPort)
+			tc, err := mcastutil.ListenMulticastUDP(sap.DefaultSAPGroups, sap.SAPPort)
 			if err != nil {
 				log.Fatalf("Could not connect to all multicast groups: %v", err)
 			}
@@ -77,7 +77,8 @@ func main() {
 			}
 			tc.Close()
 		}
-		rtpconn, err := multicastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port)
+
+		rtpconn, err := mcastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port)
 		if err != nil {
 			log.Fatalf("Could not listen on rtp address: %v", err)
 		}
