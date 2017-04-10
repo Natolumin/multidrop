@@ -47,7 +47,7 @@ var testPackets = []struct {
 			IDHash:      0xf830,
 			OrigSrc:     net.ParseIP("::c0f1:3198:207f:0"),
 			PayloadType: SDPPayloadType,
-			Len:         36,
+			len:         36,
 		},
 	},
 	{ // 2: Normal validSAP IPv4 packet
@@ -64,7 +64,7 @@ var testPackets = []struct {
 			IDHash:      0xf830,
 			OrigSrc:     net.IP{0x20, 0x7f, 0, 0},
 			PayloadType: SDPPayloadType,
-			Len:         24,
+			len:         24,
 		},
 	},
 	{ // 3: Normal validSAP packet with implicit PayloadType
@@ -81,7 +81,7 @@ var testPackets = []struct {
 			IDHash:      0xf830,
 			OrigSrc:     net.ParseIP("::c0f1:3198:207f:0"),
 			PayloadType: SDPPayloadType,
-			Len:         20,
+			len:         20,
 		},
 		rawPayload:  []byte("v=0\r\n"),
 		expectedsdp: sdp.Description{Version: 0},
@@ -100,7 +100,7 @@ var testPackets = []struct {
 			IDHash:      0xf830,
 			OrigSrc:     net.ParseIP("::c0f1:3198:207f:0"),
 			PayloadType: SDPPayloadType,
-			Len:         20,
+			len:         20,
 		},
 	},
 	{ // 5: v1 validSAP !validSDP
@@ -117,7 +117,7 @@ var testPackets = []struct {
 			IDHash:      0xf830,
 			OrigSrc:     net.ParseIP("::c0f1:3198:207f:0"),
 			PayloadType: SDPPayloadType,
-			Len:         36,
+			len:         36,
 		},
 		rawPayload: []byte("w=0\r\n"),
 	},
@@ -151,7 +151,7 @@ var testPackets = []struct {
 			IDHash:      0xf830,
 			OrigSrc:     net.ParseIP("::c0f1:3198:207f:0"),
 			PayloadType: "bpplication/sdp",
-			Len:         36,
+			len:         36,
 		},
 		rawPayload: []byte("v=0\r\n"),
 	},
@@ -179,7 +179,7 @@ var testPackets = []struct {
 				Data:       []byte{},
 			},
 			PayloadType: SDPPayloadType,
-			Len:         40,
+			len:         40,
 		},
 	},
 	{ // 14: Invalid AuthData padding
@@ -214,8 +214,8 @@ func TestParse(t *testing.T) {
 			t.Errorf("%d: Incorrect decoding: expected %v got %v", i+1, hexpacket.expected, decoded)
 			continue
 		}
-		if !bytes.Equal(packet[decoded.Len:], hexpacket.rawPayload) {
-			t.Errorf("%d: Wrong payload offset, differing payloads: %x and %x", i+1, packet[decoded.Len:], hexpacket.rawPayload)
+		if !bytes.Equal(packet[decoded.len:], hexpacket.rawPayload) {
+			t.Errorf("%d: Wrong payload offset, differing payloads: %x and %x", i+1, packet[decoded.len:], hexpacket.rawPayload)
 			continue
 		}
 	}
@@ -229,7 +229,6 @@ func TestParseSDP(t *testing.T) {
 		packet := Packet{
 			Header:  hexpacket.expected,
 			Payload: hexpacket.rawPayload,
-			Len:     hexpacket.expected.Len + len(hexpacket.rawPayload),
 		}
 		if sdppacket, err := packet.ParseSDP(); (err == nil) != hexpacket.validSDP {
 			if hexpacket.validSDP {

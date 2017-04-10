@@ -63,10 +63,10 @@ func (c *Conn) Read() (p *Packet, err error) {
 	if err != nil {
 		return
 	}
-	p = &Packet{Len: len}
+	p = new(Packet)
 
 	if p.Header, err = ParseHeader(b[:len]); err == nil {
-		p.Payload = b[p.Header.Len:len]
+		p.Payload = b[p.Header.len:len]
 	}
 	return
 }

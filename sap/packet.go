@@ -17,6 +17,7 @@ package sap
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -38,7 +39,7 @@ type Header struct {
 	OrigSrc     net.IP
 	PayloadType string
 	// Additional "metadata" fields
-	Len int
+	len int
 }
 
 // AuthData is the subheader containing authentication data
@@ -61,14 +62,12 @@ const (
 type Packet struct {
 	Header
 	Payload []byte
-	Len     int
 }
 
 // SDPPacket is an SAP packet with decoded SDP payload
 type SDPPacket struct {
 	Header
 	Payload sdp.Description
-	Len     int
 }
 
 const (
@@ -100,7 +99,7 @@ func ParseHeader(b []byte) (Header, error) {
 		Encrypted:   (b[0] & 0x01) != 0,
 		AuthLen:     b[1],
 		IDHash:      uint16(b[3]) | uint16(b[2])<<8,
-		Len:         4,
+		len:         4,
 	}
 	// Sanity checks
 	if header.Version > 1 {
@@ -108,42 +107,42 @@ func ParseHeader(b []byte) (Header, error) {
 		return header, err
 	}
 	if header.AddressType == AddrTypeV4 {
-		if len(b) < header.Len+net.IPv4len {
+		if len(b) < header.len+net.IPv4len {
 			return header, errors.New("invalid header length")
 		}
 		header.OrigSrc = b[4:8]
-		header.Len += 4
+		header.len += 4
 	} else {
-		if len(b) < header.Len+net.IPv6len {
+		if len(b) < header.len+net.IPv6len {
 			return header, errors.New("invalid header length")
 		}
 		header.OrigSrc = b[4:20]
-		header.Len += 16
+		header.len += 16
 	}
 
 	if header.AuthLen > 0 {
-		if len(b) < header.Len+int(header.AuthLen)*4 {
+		if len(b) < header.len+int(header.AuthLen)*4 {
 			return header, errors.New("invalid header length")
 		}
-		ahData, err := parseAuthData(b[header.Len : header.Len+(int)(header.AuthLen)*4])
+		ahData, err := parseAuthData(b[header.len : header.len+(int)(header.AuthLen)*4])
 		if err != nil {
 			return header, err
 		}
-		header.Len += (int)(header.AuthLen) * 4
+		header.len += (int)(header.AuthLen) * 4
 		header.AuthData = &ahData
 	}
 
 	if header.Version != 0 {
 		// Special case for no payload field, implicit "application/sdp"
-		if len(b) >= header.Len+3 && bytes.Equal(b[header.Len:header.Len+3], []byte{'v', '=', '0'}) {
+		if len(b) >= header.len+3 && bytes.Equal(b[header.len:header.len+3], []byte{'v', '=', '0'}) {
 			header.PayloadType = SDPPayloadType
 		} else {
-			pltypelen := bytes.Index(b[header.Len:], []byte{0})
+			pltypelen := bytes.Index(b[header.len:], []byte{0})
 			if pltypelen < 0 {
 				return header, errors.New("malformed payload type")
 			}
-			header.PayloadType = string(b[header.Len : header.Len+pltypelen])
-			header.Len += pltypelen + 1 // nullbyte at the end of payloadtype
+			header.PayloadType = string(b[header.len : header.len+pltypelen])
+			header.len += pltypelen + 1 // nullbyte at the end of payloadtype
 		}
 	} else {
 		header.PayloadType = SDPPayloadType
@@ -185,7 +184,6 @@ func (p *Packet) ParseSDP() (sdppacket *SDPPacket, err error) {
 	}
 	sdppacket = &SDPPacket{
 		Header:  p.Header,
-		Len:     p.Len,
 		Payload: *desc,
 	}
 	return
