@@ -55,14 +55,14 @@ type SDPPacket struct {
 }
 
 const (
-	// SAPTAnnounce is the value of the Type field for announcements
-	SAPTAnnounce = false
-	// SAPTDelete is the value of the Type field for deletions
-	SAPTDelete = true
-	// SAPAddrTypeV4 is the value of the AddressType field for IPv4
-	SAPAddrTypeV4 = false
-	// SAPAddrTypeV6 is the value of the AddressType field for IPv6
-	SAPAddrTypeV6 = true
+	// TypeAnnounce is the value of the Type field for announcements
+	TypeAnnounce = false
+	// TypeDelete is the value of the Type field for deletions
+	TypeDelete = true
+	// AddrTypeV4 is the value of the AddressType field for IPv4
+	AddrTypeV4 = false
+	// AddrTypeV6 is the value of the AddressType field for IPv6
+	AddrTypeV6 = true
 
 	// SDPPayloadType is the default and only documented SAP payload type
 	SDPPayloadType = "application/sdp"
@@ -90,7 +90,7 @@ func ParseHeader(b []byte) (Header, error) {
 		err := errors.New("invalid SAP version")
 		return header, err
 	}
-	if header.AddressType == SAPAddrTypeV4 {
+	if header.AddressType == AddrTypeV4 {
 		if len(b) < header.Len+4 {
 			return header, errors.New("invalid header length")
 		}
