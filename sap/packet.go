@@ -18,6 +18,7 @@ package sap
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/pixelbender/go-sdp/sdp"
@@ -33,12 +34,28 @@ type Header struct {
 	Encrypted   bool
 	AuthLen     uint8
 	IDHash      uint16
-	AuthData    []byte
+	AuthData    *AuthData
 	OrigSrc     net.IP
 	PayloadType string
 	// Additional "metadata" fields
 	Len int
 }
+
+// AuthData is the subheader containing authentication data
+type AuthData struct {
+	Version    uint8
+	Padding    bool
+	AuthMethod uint8
+	PaddingLen uint8
+	Data       []byte
+}
+
+const (
+	// AuthMethodPGP is the code to use in the AuthHeader for PGP authentication
+	AuthMethodPGP = 0
+	// AuthMethodCMS is the code to use in the AuthHeader for CMS(Cryptographic Message Syntax) authentication
+	AuthMethodCMS = 1
+)
 
 // Packet represents an SAP packet after parsing
 type Packet struct {
@@ -108,8 +125,12 @@ func ParseHeader(b []byte) (Header, error) {
 		if len(b) < header.Len+int(header.AuthLen)*4 {
 			return header, errors.New("invalid header length")
 		}
-		header.AuthData = b[header.Len : header.Len+(int)(header.AuthLen)*4]
+		ahData, err := parseAuthData(b[header.Len : header.Len+(int)(header.AuthLen)*4])
+		if err != nil {
+			return header, err
+		}
 		header.Len += (int)(header.AuthLen) * 4
+		header.AuthData = &ahData
 	}
 
 	if header.Version != 0 {
@@ -129,6 +150,26 @@ func ParseHeader(b []byte) (Header, error) {
 	}
 
 	return header, nil
+}
+
+func parseAuthData(b []byte) (AuthData, error) {
+	d := AuthData{
+		Version:    (b[0] & 0xe0) >> 5,
+		Padding:    (b[0] & 0x10) != 0,
+		AuthMethod: b[0] & 0x0f,
+	}
+	if d.Version != 1 {
+		return d, fmt.Errorf("version %d is not supported", d.Version)
+	}
+	if d.Padding {
+		d.PaddingLen = b[len(b)-1]
+		if int(d.PaddingLen) > len(b)-1 {
+			return d, errors.New("invalid padding length")
+		}
+	}
+
+	d.Data = b[1 : len(b)-int(d.PaddingLen)]
+	return d, nil
 }
 
 // ParseSDP converts an sap.Packet into an sap.SDPPacket by parsing the payload as SDP
