@@ -91,13 +91,13 @@ func ParseHeader(b []byte) (Header, error) {
 		return header, err
 	}
 	if header.AddressType == AddrTypeV4 {
-		if len(b) < header.Len+4 {
+		if len(b) < header.Len+net.IPv4len {
 			return header, errors.New("invalid header length")
 		}
 		header.OrigSrc = b[4:8]
 		header.Len += 4
 	} else {
-		if len(b) < header.Len+6 {
+		if len(b) < header.Len+net.IPv6len {
 			return header, errors.New("invalid header length")
 		}
 		header.OrigSrc = b[4:20]
@@ -113,21 +113,17 @@ func ParseHeader(b []byte) (Header, error) {
 	}
 
 	if header.Version != 0 {
-		var pltypelen int
 		// Special case for no payload field, implicit "application/sdp"
 		if len(b) >= header.Len+3 && bytes.Equal(b[header.Len:header.Len+3], []byte{'v', '=', '0'}) {
 			header.PayloadType = SDPPayloadType
-			pltypelen = 0
 		} else {
-			pltypelen = bytes.Index(b[header.Len:], []byte{0})
+			pltypelen := bytes.Index(b[header.Len:], []byte{0})
 			if pltypelen < 0 {
 				return header, errors.New("malformed payload type")
-			} else if header.Len+pltypelen+1 > len(b) {
-				return header, errors.New("invalid header length")
 			}
 			header.PayloadType = string(b[header.Len : header.Len+pltypelen])
+			header.Len += pltypelen + 1 // nullbyte at the end of payloadtype
 		}
-		header.Len += pltypelen + 1 // nullbyte at the end of payloadtype
 	} else {
 		header.PayloadType = SDPPayloadType
 	}
