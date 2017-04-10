@@ -171,6 +171,106 @@ func parseAuthData(b []byte) (AuthData, error) {
 	return d, nil
 }
 
+func booluint8(b bool) uint8 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+//WriteBinary writes a packet in binary format
+func (p *Packet) WriteBinary(b []byte) (int, error) {
+	p.recomputeLen()
+
+	if len(b) < p.len+len([]byte(p.Payload)) {
+		return 0, errors.New("buffer too small")
+	}
+
+	b[0] = p.Version<<5 + booluint8(p.AddressType)<<4 + booluint8(p.Reserved)<<3 + booluint8(p.Type)<<2 + booluint8(p.Encrypted)<<1 + booluint8(p.Compressed)
+	b[1] = p.AuthLen
+	binary.BigEndian.PutUint16(b[2:4], p.IDHash)
+	var curlen int
+	if p.AddressType == AddrTypeV4 {
+		copy(b[4:8], p.OrigSrc.To4())
+		curlen = 8
+	} else {
+		copy(b[4:20], p.OrigSrc)
+		curlen = 20
+	}
+	if p.AuthLen != 0 {
+		if err := p.AuthData.writeBinary(b[curlen : curlen+int(p.AuthLen)*4]); err != nil {
+			return curlen, err
+		}
+		curlen += int(p.AuthLen) * 4
+	}
+	if p.Version == 1 {
+		copy(b[curlen:curlen+len([]byte(p.PayloadType))], []byte(p.PayloadType))
+		curlen += len([]byte(p.PayloadType))
+		b[curlen] = 0
+		curlen++
+	}
+	copy(b[curlen:], p.Payload)
+	curlen += len(p.Payload)
+	return curlen, nil
+}
+
+//WriteBinary writes out a packet in binary format
+func (p *SDPPacket) WriteBinary(b []byte) (int, error) {
+	packet := Packet{Header: p.Header, Payload: []byte(p.Payload.String())}
+	return packet.WriteBinary(b)
+}
+
+func (a *AuthData) writeBinary(b []byte) error {
+	b[0] = a.Version<<5 + booluint8(a.Padding)<<4 + (a.AuthMethod & 0xff)
+	copy(b[1:], a.Data)
+	if a.Padding {
+		copy(b[1+len(a.Data):], make([]byte, a.PaddingLen))
+		b[len(a.Data)+int(a.PaddingLen)] = a.PaddingLen
+	}
+	return nil
+}
+
+func (p *Packet) Length() int {
+	p.recomputeLen()
+	return p.len + len(p.Payload)
+}
+func (p *SDPPacket) Length() int {
+	p.recomputeLen()
+	return p.len + len([]byte(p.Payload.String()))
+}
+
+func (h *Header) recomputeLen() {
+	if h.AuthData != nil {
+		h.AuthLen = h.AuthData.reflowPadding()
+	}
+	h.len = 4 + int(h.AuthLen)*4
+	h.AddressType = (h.OrigSrc.To4() == nil)
+	if h.AddressType == AddrTypeV4 {
+		h.len += net.IPv4len
+	} else {
+		h.len += net.IPv6len
+	}
+
+	if h.Version != 0 {
+		h.len += len([]byte(h.PayloadType)) + 1
+	}
+}
+
+func (a *AuthData) reflowPadding() uint8 {
+	// FIXME: error when data is too large
+	authlen := uint8(len(a.Data) + 1)
+	if a.Padding {
+		authlen += a.PaddingLen
+	}
+	if authlen%4 != 0 {
+		authlen -= a.PaddingLen
+		a.PaddingLen = uint8(4 - ((len(a.Data) + 1) % 4))
+		a.Padding = true
+		return authlen/4 + 1
+	}
+	return authlen / 4
+}
+
 // ParseSDP converts an sap.Packet into an sap.SDPPacket by parsing the payload as SDP
 func (p *Packet) ParseSDP() (sdppacket *SDPPacket, err error) {
 	if p.PayloadType != SDPPayloadType {

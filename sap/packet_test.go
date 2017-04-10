@@ -241,3 +241,79 @@ func TestParseSDP(t *testing.T) {
 		}
 	}
 }
+
+func TestWrite(t *testing.T) {
+	for i, packet := range testPackets {
+		if !packet.validSAP {
+			continue
+		}
+		sapp := Packet{
+			Header:  packet.expected,
+			Payload: packet.rawPayload,
+		}
+
+		serialized := make([]byte, sapp.Length())
+		if n, err := sapp.WriteBinary(serialized); err != nil {
+			t.Errorf("%d: Error writing out packet %v", i+1, err)
+		} else if n != len(serialized) {
+			t.Errorf("%d: Invalid length calculation", i+1)
+		} else if hex.EncodeToString(serialized[:n]) != packet.hexStream {
+			// retry with implicit payload
+			implserialized := bytes.Replace(serialized[:n], append([]byte(SDPPayloadType), 0), []byte{}, 1)
+			if hex.EncodeToString(implserialized) != packet.hexStream {
+				t.Logf("implicit-payload version: %s", hex.EncodeToString(implserialized))
+				t.Errorf("%d: hex outputs differ: \ngot: %s\nexpected: %s", i+1, hex.EncodeToString(serialized[:n]), packet.hexStream)
+			}
+		}
+	}
+}
+
+func TestWriteSDP(t *testing.T) {
+	for i, packet := range testPackets {
+		if !packet.validSDP || !packet.validSAP {
+			continue
+		}
+		sapp := SDPPacket{
+			Header:  packet.expected,
+			Payload: packet.expectedsdp,
+		}
+
+		serialized := make([]byte, sapp.Length())
+		if n, err := sapp.WriteBinary(serialized); err != nil {
+			t.Errorf("%d: Error writing out packet %v", i+1, err)
+		} else if n != len(serialized) {
+			t.Errorf("%d: Invalid length calculation", i+1)
+		}
+		// There is no equality test yet since the input is not entirely valid sdp
+	}
+}
+func TestNoOOBWrite(t *testing.T) {
+	sapp := Packet{
+		Header:  testPackets[0].expected,
+		Payload: []byte{},
+	}
+	serialized := make([]byte, sapp.Length()-1)
+	if _, err := sapp.WriteBinary(serialized); err == nil {
+		// Will panic during the condition if out-of-bounds
+		t.Errorf("Length() returns invalid value or WriteBinary failed silently")
+	}
+}
+
+func TestPadding(t *testing.T) {
+	aData := AuthData{
+		Version: 1,
+		Padding: false,
+		Data:    []byte{0x1, 0x2, 0x3, 0x4, 0x5},
+	}
+
+	if aData.reflowPadding(); aData.Padding == false || aData.PaddingLen != 2 {
+		t.Errorf("Padding not written or wrong length")
+	}
+	b := make([]byte, 8)
+	if aData.writeBinary(b) != nil {
+		t.Errorf("Error writing out aData")
+	}
+	if b[7] != 2 {
+		t.Errorf("Incorrect padding length written")
+	}
+}
