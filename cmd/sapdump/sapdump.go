@@ -28,14 +28,20 @@ import (
 
 	"github.com/Natolumin/multidrop/mcastutil"
 	"github.com/Natolumin/multidrop/sap"
-	"github.com/pixelbender/go-sdp/sdp"
 
 	"github.com/LINBIT/termui"
+	"github.com/emirpasic/gods/sets/treeset"
+	godsutils "github.com/emirpasic/gods/utils"
+	"github.com/pixelbender/go-sdp/sdp"
 )
 
 const defFormat = "{{.Payload}}\n"
 
 const timeResolution = time.Second
+
+var filter = func(lf *sap.AdvLifetime) bool {
+	return lf.Last.Add(lf.Interval*10).After(time.Now()) || (lf.Count == 1 && lf.Last.Add(time.Minute*2).After(time.Now()))
+}
 
 func main() {
 
@@ -98,39 +104,38 @@ func main() {
 			}
 		}
 	} else {
+		streams := conn.CountStreams()
+		defer streams.Close()
+
 		err := termui.Init()
 		if err != nil {
 			log.Panic(err)
 		}
 		defer termui.Close()
 
-		streams := conn.CountStreams()
-		defer streams.Close()
-
-		// TODO: sort channels by number/name
+		go func() {
+			evchan := termui.NewSysEvtCh()
+			termui.Merge("user events", evchan)
+			for streams.WaitChange() {
+				evchan <- termui.Event{
+					Path: "/net/recv",
+					Time: time.Now().Unix(),
+					Data: nil,
+				}
+			}
+		}()
 
 		tbl := termui.NewTable()
 		tbl.Separator = false
 		tbl.Border = false
 		tbl.Width = termui.TermWidth()
 		tbl.Height = termui.TermHeight()
-		termui.Handle("/timer/1s", func(termui.Event) {
-			channels := streams.Read()
-			displayed := [][]string{[]string{"Session", "Last Adv.", "Nb.", "Interval", "Group Address"}}
-			for _, channel := range channels {
-				if channel.Last.Add(channel.Interval*10).After(time.Now()) ||
-					(channel.Count == 1 && channel.Last.Add(time.Minute*5).After(time.Now())) {
-					displayed = append(displayed, []string{
-						channel.Session,
-						channel.Last.Format("15:04:05.000"),
-						strconv.Itoa(channel.Count),
-						(channel.Interval / timeResolution * timeResolution).String(),
-						groupAddr(channel.Description),
-					})
-				}
-			}
-			tbl.SetRows(displayed)
-			termui.Render(tbl)
+
+		termui.Handle("/net/recv", func(termui.Event) {
+			updateDisplay(tbl, streams)
+		})
+		termui.Handle("/timers/1s", func(termui.Event) {
+			updateDisplay(tbl, streams)
 		})
 		termui.Handle("/sys/kbd/q", func(termui.Event) {
 			termui.StopLoop()
@@ -144,6 +149,33 @@ func main() {
 		})
 		termui.Loop()
 	}
+}
+
+func updateDisplay(tbl *termui.Table, streams sap.StreamsAccumulator) {
+	treeset := treeset.NewWith(func(a, b interface{}) int {
+		return godsutils.StringComparator(
+			a.(sap.AdvLifetime).Session+strconv.Itoa(int(a.(sap.AdvLifetime).Hash)),
+			b.(sap.AdvLifetime).Session+strconv.Itoa(int(b.(sap.AdvLifetime).Hash)),
+		)
+	})
+	displayed := [][]string{[]string{"Session", "Last Adv.", "Nb.", "Interval", "Group Address"}}
+
+	for channel := range streams.Iterator(filter) {
+		treeset.Add(channel)
+	}
+	it := treeset.Iterator()
+	for it.Next() {
+		channel := it.Value().(sap.AdvLifetime)
+		displayed = append(displayed, []string{
+			channel.Session,
+			channel.Last.Format("15:04:05.000"),
+			strconv.Itoa(channel.Count),
+			(channel.Interval / timeResolution * timeResolution).String(),
+			groupAddr(channel.Description),
+		})
+	}
+	tbl.SetRows(displayed)
+	termui.Render(tbl)
 }
 
 func groupAddr(d sdp.Description) string {
