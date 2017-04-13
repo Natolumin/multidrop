@@ -16,8 +16,8 @@
 package sap
 
 import (
-	"log"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/pixelbender/go-sdp/sdp"
@@ -82,122 +82,93 @@ func (c *SDPConn) Read() (*SDPPacket, error) {
 	return header.ParseSDP()
 }
 
-// FindChannels finds the given channels in the SAP announcements
-func (c *SDPConn) FindChannels(channels []string) map[string]*net.UDPAddr {
-
-	matches := make(map[string]*net.UDPAddr)
-	for {
-		announce, err := c.Read()
-		if err != nil {
-			continue
-		}
-		for i := range channels {
-			if announce.Payload.Session == channels[i] {
-				matches[announce.Payload.Session] = &net.UDPAddr{
-					IP:   net.ParseIP(announce.Payload.Origin.Address),
-					Port: announce.Payload.Media[0].Port, //XXX: Eh
-				}
-			}
-		}
-		if len(matches) == len(channels) {
-			break
-		}
-	}
-	return matches
-}
-
-// CountStreams starts a routine that keeps count of available streams
-func (c *SDPConn) CountStreams() StreamChan {
-	sch := newStreamChan()
-	go c.countStreams(sch)
-	return sch
-}
-
-// StreamChan is an opaque structure to control the countStreams function
-type StreamChan struct {
-	datachan    chan []AdvLifetime
-	controlchan chan bool
-}
-
-func newStreamChan() StreamChan {
-	return StreamChan{
-		datachan:    make(chan []AdvLifetime),
-		controlchan: make(chan bool),
-	}
-}
-
-// Close implements the Closer interface
-func (c StreamChan) Close() {
-	c.controlchan <- false
-	close(c.controlchan)
-}
-func (c StreamChan) Read() []AdvLifetime {
-	c.controlchan <- true
-	return <-c.datachan
-}
-
 // AdvLifetime is a sdp.Description annotated with timing information
 type AdvLifetime struct {
 	sdp.Description
+	Hash     uint16
 	Last     time.Time
 	Interval time.Duration
 	Count    int
 }
 
-func (c *SDPConn) countStreams(cch StreamChan) {
-	var channels []AdvLifetime
-	dch := make(chan *sdp.Description)
+type origHash struct {
+	IDHash  uint16
+	OrigSrc [16]byte
+}
+
+type channelMap struct {
+	sync.RWMutex
+	conn          *SDPConn
+	lifetimes     map[origHash]AdvLifetime
+	notifications chan bool
+}
+
+// StreamsAccumulator receives and counts SAP announcements and provides a list of them in a channel when needed
+type StreamsAccumulator interface {
+	// Iterator makes it possible to use for := range loops on this interface
+	Iterator(ChannelFilter) <-chan AdvLifetime
+	// WaitChange provides notification when an item is modified
+	WaitChange() bool
+	// Close cleans up resources after use
+	Close()
+}
+
+func (m *channelMap) Iterator(filter ChannelFilter) <-chan AdvLifetime {
+	m.RLock()
+	ch := make(chan AdvLifetime, len(m.lifetimes))
 	go func() {
-		for {
-			p, err := c.Read()
-			if err == nil {
-				dch <- &p.Payload
-			} else {
-				return
+		for _, v := range m.lifetimes {
+			if filter(&v) {
+				ch <- v
 			}
 		}
+		m.RUnlock()
+		close(ch)
 	}()
-	for {
-		select {
-		case msg := <-cch.controlchan:
-			if !msg {
-				close(cch.datachan)
-				return
-			}
-			var snapshot []AdvLifetime
-			for _, c := range channels {
-				//sdp.Description doesn't provide a deep-copy. Parse(String()) is good enough
-				copyc, err := sdp.Parse(c.Description.String())
-				if err != nil {
-					log.Printf("sdp could not parse own string: %v", c.Description.String())
-					continue
-				}
-				snapshot = append(snapshot, AdvLifetime{
-					Description: *copyc,
-					Last:        c.Last,
-					Interval:    c.Interval,
-					Count:       c.Count,
-				})
-			}
-			cch.datachan <- snapshot
-		case p := <-dch:
-			found := false
-			for i, c := range channels {
-				if c.Session == p.Session {
-					found = true
-					channels[i].Interval = time.Now().Sub(c.Last)
-					channels[i].Last = time.Now()
-					channels[i].Count++
-					break
-				}
-			}
-			if !found {
-				channels = append(channels, AdvLifetime{
-					Description: *p,
-					Last:        time.Now(),
-					Count:       1,
-				})
-			}
-		}
+	return ch
+}
+
+func (m *channelMap) WaitChange() bool {
+	_, ok := <-m.notifications
+	return ok
+}
+
+func (m *channelMap) Close() {
+	m.conn.Close()
+}
+
+// CountStreams starts a routine that keeps count of available streams
+func (c *SDPConn) CountStreams() StreamsAccumulator {
+	channels := channelMap{
+		conn:          c,
+		lifetimes:     make(map[origHash]AdvLifetime),
+		notifications: make(chan bool),
 	}
+	go countStreams(&channels)
+	return &channels
+}
+
+func countStreams(channels *channelMap) {
+	for {
+		p, err := channels.conn.Read()
+		if err != nil {
+			break
+		}
+
+		hash := origHash{IDHash: p.IDHash}
+		copy(hash.OrigSrc[:], p.OrigSrc.To16())
+		channels.Lock()
+		if channel, ok := channels.lifetimes[hash]; ok {
+			channel.Interval = time.Now().Sub(channel.Last)
+			channel.Last = time.Now()
+			channel.Count++
+			channels.lifetimes[hash] = channel
+		} else {
+			channels.lifetimes[hash] = AdvLifetime{Description: p.Payload, Hash: p.IDHash, Last: time.Now(), Count: 1}
+		}
+		channels.Unlock()
+		channels.notifications <- true
+	}
+
+	close(channels.notifications)
 }
