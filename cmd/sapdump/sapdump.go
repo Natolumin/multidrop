@@ -98,9 +98,11 @@ func main() {
 		for {
 			packet, err := conn.Read()
 			if err == nil {
-				if err := tmpl.Execute(os.Stdout, packet); err != nil {
+				if err = tmpl.Execute(os.Stdout, packet); err != nil {
 					log.Fatal(err)
 				}
+			} else {
+				log.Print(err)
 			}
 		}
 	} else {
