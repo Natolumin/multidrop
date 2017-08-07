@@ -25,8 +25,7 @@ import (
 
 const (
 	// SAPPort is the well-known port for SAP announces
-	SAPPort    = 9875
-	initialMTU = 1500
+	SAPPort = 9875
 )
 
 var (
@@ -34,7 +33,21 @@ var (
 	GroupAddr4 = net.IP{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 224, 2, 127, 254}
 	// GroupAddr6 is the standard multicast group address for SAP announcements on ipv6
 	GroupAddr6 = net.IP{0xff, 0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x7f, 0xfe}
+
+	maxMTU = 1500
 )
+
+func init() {
+	ifaces, err := net.Interfaces()
+	if err != nil { // Assume ethernet MTU
+		return
+	}
+	for _, ifi := range ifaces {
+		if ifi.MTU > maxMTU {
+			maxMTU = ifi.MTU
+		}
+	}
+}
 
 //V6GroupByZone returns the multicast group address associated with a given zone
 func V6GroupByZone(zone uint8) net.IP {
@@ -57,7 +70,7 @@ var DefaultSAPGroups = []net.IP{
 type Conn net.UDPConn
 
 func (c *Conn) Read() (p *Packet, err error) {
-	b := make([]byte, initialMTU)
+	b := make([]byte, maxMTU)
 
 	len, err := (*net.UDPConn)(c).Read(b)
 	if err != nil {
