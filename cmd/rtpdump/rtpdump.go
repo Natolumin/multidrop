@@ -40,15 +40,11 @@ func main() {
 	flag.Parse()
 
 	if *channel != "" && *group != "" {
-		log.Print("Incompatible options: channel and group")
+		log.Println("Incompatible options: channel and group")
 		flag.PrintDefaults()
 	}
 	if *channel != "" && *port != -1 {
-		log.Print("Incompatible options: channel and port")
-		flag.PrintDefaults()
-	}
-	if *channel == "" && (*port < 0 || *group == "") {
-		log.Print("Port and group are required if channel is not given")
+		log.Println("Incompatible options: channel and port")
 		flag.PrintDefaults()
 	}
 
