@@ -1,2 +1,5 @@
 cmd/sapdump/sapdump
 cmd/rtpdump/rtpdump
+
+# Reference pcap files
+*.pcap
