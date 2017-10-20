@@ -72,14 +72,15 @@ type Conn net.UDPConn
 func (c *Conn) Read() (p *Packet, err error) {
 	b := make([]byte, maxMTU)
 
-	len, err := (*net.UDPConn)(c).Read(b)
+	n, err := (*net.UDPConn)(c).Read(b)
+	//XXX: Do I want to handle truncated reads ?
 	if err != nil {
 		return
 	}
 	p = new(Packet)
 
-	if p.Header, err = ParseHeader(b[:len]); err == nil {
-		p.Payload = b[p.Header.len:len]
+	if p.Header, err = ParseHeader(b[:n]); err == nil {
+		p.Payload = b[p.Header.len:n]
 	}
 	return
 }
