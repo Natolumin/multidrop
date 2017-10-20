@@ -19,6 +19,8 @@ import (
 	"flag"
 	"log"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Natolumin/multidrop/mcastutil"
@@ -50,72 +52,99 @@ func main() {
 
 	// Auto-reconnect on channel loss
 	var gaddr *net.UDPAddr
-	if *channel == "" {
+	if *group != "" {
 		gaddr = &net.UDPAddr{
 			IP:   net.ParseIP(*group),
 			Port: *port,
 		}
-	}
-	for {
-		if *channel != "" {
-			tc, err := mcastutil.ListenMulticastUDP(sap.DefaultSAPGroups, sap.SAPPort)
-			if err != nil {
-				log.Fatalf("Could not connect to all multicast groups: %v", err)
-			}
-			conn := (*sap.SDPConn)(tc)
-			groups := conn.FindChannels([]string{*channel})
-			gaddr = groups[*channel]
-			if gaddr == nil {
-				log.Fatal("Could not find required group")
-			}
-			if debug {
-				log.Printf("Found channel %s on group %v ", *channel, gaddr)
-			}
-			tc.Close()
-		}
-
 		rtpconn, err := mcastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port)
 		if err != nil {
 			log.Fatalf("Could not listen on rtp address: %v", err)
 		}
-		parseRTP(rtpconn)
+		parseRTP("["+*group+"]:"+strconv.Itoa(*port), rtpconn, gaddr)
+	} else {
+		tc, err := mcastutil.ListenMulticastUDP(sap.DefaultSAPGroups, sap.SAPPort)
+		if err != nil {
+			log.Fatalf("Could not connect to all multicast groups: %v", err)
+		}
+		conn := (*sap.SDPConn)(tc)
+		groups := conn.CountStreams()
+
+		var filter sap.ChannelFilter
+		if *channel != "" {
+			channels := strings.Split(*channel, ",")
+			filter = sap.FilterAnd(sap.FilterNotExpired, sap.ChannelList(channels))
+		} else {
+			filter = sap.FilterNotExpired
+		}
+
+		knownChannels := map[string]*net.UDPConn{}
+		for groups.WaitChange() {
+			for grp := range groups.Iterator(filter) {
+				gaddr = &net.UDPAddr{
+					IP:   net.ParseIP(grp.Description.Connection.Address),
+					Port: grp.Description.Media[0].Port,
+				}
+				if knownChannels[grp.Description.Session] != nil {
+					//TODO: lock + map and cleanup when quitting parseRTP
+					continue
+				}
+				log.Printf("Found channel %s on group %v ", grp.Description.Session, gaddr)
+				var err error = nil
+				knownChannels[grp.Description.Session], err =
+					mcastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port)
+				if err != nil {
+					log.Printf("Could not listen on rtp address: %v", err)
+					continue
+				}
+				go parseRTP(grp.Description.Session, knownChannels[grp.Description.Session], gaddr)
+			}
+		}
 	}
 }
 
-func parseRTP(conn *net.UDPConn) {
+func parseRTP(identifier string, conn *net.UDPConn, filterIP *net.UDPAddr) {
 	b := make([]byte, 1500)
 	var seqnum uint16
 	var started bool
 	for {
-		conn.SetReadDeadline(time.Now().Add(time.Minute * 2))
-		len, _, err := conn.ReadFromUDP(b)
+		_ = conn.SetReadDeadline(time.Now().Add(time.Minute * 2))
+		len, daddr, err := conn.ReadFromUDP(b)
+
+		if daddr != filterIP {
+			// On linux, with IPv4 without IP_MULTICAST_ALL or with IPv6, *all* the multicast streams that
+			// *any socket on the machine* is subscribed to are distributed in *all* the sockets that match.
+			// That means that if any other process on the machine is subscribed to an rtp stream on the
+			// same port, even from a completely different address, we will get it here.
+			// So yes, we have to do daddr filtering in userspace. Yes it is stupid.
+			continue
+		}
+
 		if err, ok := err.(net.Error); ok && err.Timeout() {
-			log.Println("Timeout exceeded: No packet received")
+			log.Printf("%s: Timeout exceeded: No packet received", identifier)
 			return
 		} else if err != nil {
-			if debug {
-				log.Printf("Could not read from connection: %v", err)
-			}
+			log.Printf("%s: Could not read from connection: %v", identifier, err)
 			return
 		}
 		decoded, err := rtp.ParsePacket(b[:len])
 		if err != nil {
 			if debug {
-				log.Printf("Malformed packet (err: %v) %v", err, b)
+				log.Printf("%s: Malformed packet (err: %v) %v", identifier, err, b)
 			}
 			return
 		}
 		if !started {
-			log.Printf("Stream start at sequence %d", decoded.SequenceNumber)
+			log.Printf("%s: Stream start at sequence %d", identifier, decoded.SequenceNumber)
 			seqnum = decoded.SequenceNumber - 1
 		}
 		if seqnum+1 != decoded.SequenceNumber {
 			if decoded.SequenceNumber == 0 && seqnum <= 65500 {
-				log.Println("Stream reset to sequence number 0. Emitter restart ?")
+				log.Printf("%s: Stream reset to sequence number 0. Emitter restart ?", identifier)
 			} else if seqnum+1 == decoded.SequenceNumber-1 {
-				log.Printf("Lost packet %d", seqnum+1)
+				log.Printf("%s: Lost packet %d", identifier, seqnum+1)
 			} else {
-				log.Printf("Lost packets %d to %d", seqnum+1, decoded.SequenceNumber-1)
+				log.Printf("%s: Lost packets %d to %d", identifier, seqnum+1, decoded.SequenceNumber-1)
 			}
 		}
 		seqnum = decoded.SequenceNumber
