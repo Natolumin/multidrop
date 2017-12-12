@@ -19,9 +19,9 @@ import (
 	"bytes"
 	"encoding/hex"
 	"net"
-	"reflect"
 	"testing"
 
+	"github.com/go-test/deep"
 	"github.com/pixelbender/go-sdp/sdp"
 )
 
@@ -207,11 +207,11 @@ func TestParse(t *testing.T) {
 			t.Errorf("%d: Expected validSAP packet, got error %v", i+1, err)
 			continue
 		}
-		if !reflect.DeepEqual(decoded, hexpacket.expected) {
-			if !reflect.DeepEqual(decoded.AuthData, hexpacket.expected.AuthData) {
-				t.Logf("%d: Auth data doesn't match: expected %v got %v", i+1, *hexpacket.expected.AuthData, *decoded.AuthData)
+		if diff := deep.Equal(decoded, hexpacket.expected); diff != nil {
+			if diff := deep.Equal(decoded.AuthData, hexpacket.expected.AuthData); diff != nil {
+				t.Logf("%d: Auth data doesn't match: %s", i+1, diff)
 			}
-			t.Errorf("%d: Incorrect decoding: expected %v got %v", i+1, hexpacket.expected, decoded)
+			t.Errorf("%d: Incorrect decoding: %s", i+1, diff)
 			continue
 		}
 		if !bytes.Equal(packet[decoded.len:], hexpacket.rawPayload) {
