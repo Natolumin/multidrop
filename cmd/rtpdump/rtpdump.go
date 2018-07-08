@@ -57,13 +57,13 @@ func main() {
 			IP:   net.ParseIP(*group),
 			Port: *port,
 		}
-		rtpconn, err := mcastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port)
+		rtpconn, err := mcastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port, nil)
 		if err != nil {
 			log.Fatalf("Could not listen on rtp address: %v", err)
 		}
 		parseRTP("["+*group+"]:"+strconv.Itoa(*port), rtpconn, gaddr)
 	} else {
-		tc, err := mcastutil.ListenMulticastUDP(sap.DefaultSAPGroups, sap.SAPPort)
+		tc, err := mcastutil.ListenMulticastUDP(sap.DefaultSAPGroups, sap.SAPPort, nil)
 		if err != nil {
 			log.Fatalf("Could not connect to all multicast groups: %v", err)
 		}
@@ -92,7 +92,7 @@ func main() {
 				log.Printf("Found channel %s on group %v ", grp.Description.Session, gaddr)
 				var err error = nil
 				knownChannels[grp.Description.Session], err =
-					mcastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port)
+					mcastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port, nil)
 				if err != nil {
 					log.Printf("Could not listen on rtp address: %v", err)
 					continue

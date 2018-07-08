@@ -60,10 +60,21 @@ func main() {
 	v6only := flag.Bool("6", false, "Only listen on ipv6 groups (overriden by -group)")
 	v4only := flag.Bool("4", false, "Only listen on ipv4 groups (overriden by -group)")
 
+	ifname := flag.String("i", "", "Force binding to a specific interface for multicast group. "+
+		"Without this, the OS default is used, which may often not be what you want")
+
 	flag.Parse()
 
 	if *v6only && *v4only {
 		log.Fatal("Incompatible flags -4 and -6")
+	}
+
+	var iface *net.Interface
+	if *ifname != "" {
+		var err error
+		if iface, err = net.InterfaceByName(*ifname); err != nil {
+			log.Fatalf("Could not find interface %s: %v\n", *ifname, err)
+		}
 	}
 
 	// Socket setup
@@ -83,7 +94,7 @@ func main() {
 			gaddrs[i] = net.ParseIP(g)
 		}
 	}
-	tc, err := mcastutil.ListenMulticastUDP(gaddrs, sap.SAPPort)
+	tc, err := mcastutil.ListenMulticastUDP(gaddrs, sap.SAPPort, iface)
 	if err != nil {
 		log.Fatalf("Could not join all multicast groups: %v", err)
 	}

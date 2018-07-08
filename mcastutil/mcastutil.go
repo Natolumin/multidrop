@@ -36,29 +36,29 @@ func init() {
 	}
 }
 
-func joinGroup(conn *net.UDPConn, ip *net.IPAddr) (err error) {
+func joinGroup(conn *net.UDPConn, ip *net.IPAddr, ifi *net.Interface) (err error) {
 	pc6 := ipv6.NewPacketConn(conn)
-	if err = pc6.JoinGroup(nil, ip); err == nil || ip.IP.To4() == nil {
+	if err = pc6.JoinGroup(ifi, ip); err == nil || ip.IP.To4() == nil {
 		return
 	}
 	// If it doesn't work as IPv6 (apparently v4-mapped addresses are outright rejected)
 	pc4 := ipv4.NewPacketConn(conn)
-	err = pc4.JoinGroup(nil, ip)
+	err = pc4.JoinGroup(ifi, ip)
 	return
 }
-func leaveGroup(conn *net.UDPConn, ip *net.IPAddr) (err error) {
+func leaveGroup(conn *net.UDPConn, ip *net.IPAddr, ifi *net.Interface) (err error) {
 	pc6 := ipv6.NewPacketConn(conn)
-	if err = pc6.LeaveGroup(nil, ip); err == nil || ip.IP.To4() == nil {
+	if err = pc6.LeaveGroup(ifi, ip); err == nil || ip.IP.To4() == nil {
 		return
 	}
 	// If it doesn't work as IPv6 (apparently v4-mapped addresses are outright rejected)
 	pc4 := ipv4.NewPacketConn(conn)
-	err = pc4.LeaveGroup(nil, ip)
+	err = pc4.LeaveGroup(ifi, ip)
 	return
 }
 
 //ListenMulticastUDP reimplements net.ListenMulticastUDP with multiple groups simultaneously
-func ListenMulticastUDP(gaddrs []net.IP, port int) (conn *net.UDPConn, err error) {
+func ListenMulticastUDP(gaddrs []net.IP, port int, ifi *net.Interface) (conn *net.UDPConn, err error) {
 	// see net/sock_posix.go:184 we need to use a multicast address as laddr for proper SO_REUSEADDR setting
 	conn, err = net.ListenUDP("udp6", &net.UDPAddr{IP: gaddrs[0], Port: port})
 	if err != nil {
@@ -66,7 +66,7 @@ func ListenMulticastUDP(gaddrs []net.IP, port int) (conn *net.UDPConn, err error
 	}
 
 	for _, gaddr := range gaddrs {
-		if err = joinGroup(conn, &net.IPAddr{IP: gaddr}); err != nil {
+		if err = joinGroup(conn, &net.IPAddr{IP: gaddr}, ifi); err != nil {
 			return
 		}
 	}
