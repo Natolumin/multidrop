@@ -98,7 +98,7 @@ func (c *SDPConn) Read() (*SDPPacket, error) {
 
 // AdvLifetime is a sdp.Description annotated with timing information
 type AdvLifetime struct {
-	sdp.Description
+	sdp.Session
 	Hash     uint16
 	Last     time.Time
 	Interval time.Duration
@@ -178,7 +178,7 @@ func countStreams(channels *channelMap) {
 			channel.Count++
 			channels.lifetimes[hash] = channel
 		} else {
-			channels.lifetimes[hash] = AdvLifetime{Description: p.Payload, Hash: p.IDHash, Last: time.Now(), Count: 1}
+			channels.lifetimes[hash] = AdvLifetime{Session: p.Payload, Hash: p.IDHash, Last: time.Now(), Count: 1}
 		}
 		channels.Unlock()
 		channels.notifications <- true

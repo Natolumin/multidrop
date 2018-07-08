@@ -167,8 +167,8 @@ func main() {
 func updateDisplay(tbl *termui.Table, streams sap.StreamsAccumulator) {
 	treeset := treeset.NewWith(func(a, b interface{}) int {
 		return godsutils.StringComparator(
-			a.(sap.AdvLifetime).Session+strconv.Itoa(int(a.(sap.AdvLifetime).Hash)),
-			b.(sap.AdvLifetime).Session+strconv.Itoa(int(b.(sap.AdvLifetime).Hash)),
+			a.(sap.AdvLifetime).Name+strconv.Itoa(int(a.(sap.AdvLifetime).Hash)),
+			b.(sap.AdvLifetime).Name+strconv.Itoa(int(b.(sap.AdvLifetime).Hash)),
 		)
 	})
 	displayed := [][]string{[]string{"Session", "Last Adv.", "Nb.", "Interval", "Group Address"}}
@@ -180,18 +180,18 @@ func updateDisplay(tbl *termui.Table, streams sap.StreamsAccumulator) {
 	for it.Next() {
 		channel := it.Value().(sap.AdvLifetime)
 		displayed = append(displayed, []string{
-			channel.Session,
+			channel.Name,
 			channel.Last.Format("15:04:05.000"),
 			strconv.Itoa(channel.Count),
 			(channel.Interval / timeResolution * timeResolution).String(),
-			groupAddr(channel.Description),
+			groupAddr(channel.Session),
 		})
 	}
 	tbl.SetRows(displayed)
 	termui.Render(tbl)
 }
 
-func groupAddr(d sdp.Description) string {
+func groupAddr(d sdp.Session) string {
 	addr := d.Origin.Address
 	if net.ParseIP(addr).To4() == nil {
 		addr = "[" + addr + "]"

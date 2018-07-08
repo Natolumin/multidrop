@@ -24,7 +24,7 @@ type ChannelFilter func(*AdvLifetime) bool
 func ChannelList(channels []string) ChannelFilter {
 	return func(lf *AdvLifetime) bool {
 		for _, c := range channels {
-			if c == lf.Session {
+			if c == lf.Session.Name {
 				return true
 			}
 		}

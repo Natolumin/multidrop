@@ -67,7 +67,7 @@ type Packet struct {
 // SDPPacket is an SAP packet with decoded SDP payload
 type SDPPacket struct {
 	Header
-	Payload sdp.Description
+	Payload sdp.Session
 }
 
 const (
@@ -278,7 +278,7 @@ func (p *Packet) ParseSDP() (sdppacket *SDPPacket, err error) {
 		return
 	}
 
-	desc, err := sdp.Parse(string(p.Payload))
+	desc, err := sdp.Parse(p.Payload)
 	if err != nil {
 		return
 	}

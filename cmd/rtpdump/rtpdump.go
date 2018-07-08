@@ -82,22 +82,22 @@ func main() {
 		for groups.WaitChange() {
 			for grp := range groups.Iterator(filter) {
 				gaddr = &net.UDPAddr{
-					IP:   net.ParseIP(grp.Description.Connection.Address),
-					Port: grp.Description.Media[0].Port,
+					IP:   net.ParseIP(grp.Session.Connection.Address),
+					Port: grp.Session.Media[0].Port,
 				}
-				if knownChannels[grp.Description.Session] != nil {
+				if knownChannels[grp.Session.Name] != nil {
 					//TODO: lock + map and cleanup when quitting parseRTP
 					continue
 				}
-				log.Printf("Found channel %s on group %v ", grp.Description.Session, gaddr)
+				log.Printf("Found channel %s on group %v ", grp.Session.Name, gaddr)
 				var err error = nil
-				knownChannels[grp.Description.Session], err =
+				knownChannels[grp.Session.Name], err =
 					mcastutil.ListenMulticastUDP([]net.IP{gaddr.IP}, gaddr.Port, nil)
 				if err != nil {
 					log.Printf("Could not listen on rtp address: %v", err)
 					continue
 				}
-				go parseRTP(grp.Description.Session, knownChannels[grp.Description.Session], gaddr)
+				go parseRTP(grp.Session.Name, knownChannels[grp.Session.Name], gaddr)
 			}
 		}
 	}
