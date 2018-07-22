@@ -21,39 +21,30 @@ import (
 	"net"
 	"os"
 	"path"
-	"strconv"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/Natolumin/multidrop/mcastutil"
 	"github.com/Natolumin/multidrop/sap"
-
-	"github.com/LINBIT/termui"
-	"github.com/emirpasic/gods/sets/treeset"
-	godsutils "github.com/emirpasic/gods/utils"
-	"github.com/pixelbender/go-sdp/sdp"
 )
 
 const defFormat = "{{.Payload}}\n"
 
-const timeResolution = time.Second
-
-var filter = func(lf *sap.AdvLifetime) bool {
-	return lf.Last.Add(lf.Interval*10).After(time.Now()) || (lf.Count == 1 && lf.Last.Add(time.Minute*2).After(time.Now()))
-}
+var runTermui func(*sap.SDPConn) = nil
 
 func main() {
 
 	var format *string
 	var curses bool
-	//Binary-specific options
-	if path.Base(os.Args[0]) == "saptop" {
-		curses = true
-	} else {
-		format = flag.String("format", defFormat, "Format string following text/template for dumping SAP announcements")
-		flag.BoolVar(&curses, "curses", false, "Display continuous stats instead of dumping incoming announcements (aka \"saptop\")")
+
+	if runTermui != nil {
+		if path.Base(os.Args[0]) == "saptop" {
+			curses = true
+		} else {
+			flag.BoolVar(&curses, "curses", false, "Display continuous stats instead of dumping incoming announcements (aka \"saptop\")")
+		}
 	}
+	format = flag.String("format", defFormat, "Format string following text/template for dumping SAP announcements")
 
 	//common options
 	group := flag.String("group", "", "Comma-separated Group(s) on which to listen for SAP announcements.")
@@ -117,88 +108,10 @@ func main() {
 			}
 		}
 	} else {
-		streams := conn.CountStreams()
-		defer streams.Close()
-
-		err := termui.Init()
-		if err != nil {
-			log.Panic(err)
+		if runTermui != nil {
+			runTermui(conn)
+		} else {
+			panic("Trying to run in curses mode when curses mode is not built")
 		}
-		defer termui.Close()
-
-		go func() {
-			evchan := termui.NewSysEvtCh()
-			termui.Merge("user events", evchan)
-			for streams.WaitChange() {
-				evchan <- termui.Event{
-					Path: "/net/recv",
-					Time: time.Now().Unix(),
-					Data: nil,
-				}
-			}
-		}()
-
-		tbl := termui.NewTable()
-		tbl.Separator = false
-		tbl.Border = false
-		tbl.Width = termui.TermWidth()
-		tbl.Height = termui.TermHeight()
-
-		termui.Handle("/net/recv", func(termui.Event) {
-			updateDisplay(tbl, streams)
-		})
-		termui.Handle("/timers/1s", func(termui.Event) {
-			updateDisplay(tbl, streams)
-		})
-		termui.Handle("/sys/kbd/q", func(termui.Event) {
-			termui.StopLoop()
-		})
-		termui.Handle("/sys/kbd/C-c", func(termui.Event) {
-			termui.StopLoop()
-		})
-		termui.Handle("/sys/wnd/resize", func(termui.Event) {
-			tbl.Width = termui.TermWidth()
-			tbl.Height = termui.TermHeight()
-		})
-		termui.Loop()
 	}
-}
-
-func updateDisplay(tbl *termui.Table, streams sap.StreamsAccumulator) {
-	treeset := treeset.NewWith(func(a, b interface{}) int {
-		return godsutils.StringComparator(
-			a.(sap.AdvLifetime).Name+strconv.Itoa(int(a.(sap.AdvLifetime).Hash)),
-			b.(sap.AdvLifetime).Name+strconv.Itoa(int(b.(sap.AdvLifetime).Hash)),
-		)
-	})
-	displayed := [][]string{[]string{"Session", "Last Adv.", "Nb.", "Interval", "Group Address"}}
-
-	for channel := range streams.Iterator(filter) {
-		treeset.Add(channel)
-	}
-	it := treeset.Iterator()
-	for it.Next() {
-		channel := it.Value().(sap.AdvLifetime)
-		displayed = append(displayed, []string{
-			channel.Name,
-			channel.Last.Format("15:04:05.000"),
-			strconv.Itoa(channel.Count),
-			(channel.Interval / timeResolution * timeResolution).String(),
-			groupAddr(channel.Session),
-		})
-	}
-	tbl.SetRows(displayed)
-	termui.Render(tbl)
-}
-
-func groupAddr(d sdp.Session) string {
-	addr := d.Origin.Address
-	if net.ParseIP(addr).To4() == nil {
-		addr = "[" + addr + "]"
-	}
-	var ports []string
-	for _, m := range d.Media {
-		ports = append(ports, strconv.Itoa(m.Port))
-	}
-	return addr + ":" + strings.Join(ports, ",")
 }
